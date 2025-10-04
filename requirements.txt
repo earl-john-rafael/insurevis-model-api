@@ -1,0 +1,23 @@
+# requirements.txt
+
+# Base and ML
+numpy
+opencv-python
+onnxruntime
+pillow
+pyyaml==5.1
+shapely
+matplotlib
+
+# PyTorch
+torch
+torchvision
+torchaudio
+
+# Detectron2 (from GitHub)
+detectron2 @ git+https://github.com/facebookresearch/detectron2.git
+
+# Web Server
+Flask
+Flask-Cors
+gunicorn
