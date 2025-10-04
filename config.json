@@ -1,0 +1,208 @@
+{
+  "class_names": {
+    "car_parts": [
+      "Background",
+      "Back-bumper",
+      "Back-door",
+      "Back-wheel",
+      "Back-window",
+      "Back-windshield",
+      "Fender",
+      "Front-bumper",
+      "Front-door",
+      "Front-wheel",
+      "Front-window",
+      "Grille",
+      "Headlight",
+      "Hood",
+      "License-plate",
+      "Mirror",
+      "Quarter-panel",
+      "Rocker-panel",
+      "Roof",
+      "Tail-light",
+      "Trunk",
+      "Windshield",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background",
+      "Background"
+    ],
+    "damage_segmentation": [
+      "Background",
+      "Damage",
+      "Background",
+      "Background",
+      "Background"
+    ],
+    "severity": [
+      "minor",
+      "moderate",
+      "severe"
+    ],
+    "damage_types": [
+      "Crack",
+      "Dent",
+      "Shattered Glass",
+      "Broken Lamp",
+      "Scratch / Paint Wear",
+      "Flat Tire"
+    ]
+  },
+  "costs": {
+    "part_base": {
+      "Hood": 22220.0,
+      "Front-bumper": 13887.5,
+      "Back-bumper": 12498.75,
+      "Front-door": 16665.0,
+      "Back-door": 16665.0,
+      "Windshield": 8332.5,
+      "Front-window": 5555.0,
+      "Back-window": 5555.0,
+      "Back-windshield": 8332.5,
+      "Grille": 6943.75,
+      "Headlight": 11110.0,
+      "Tail-light": 9721.25,
+      "Mirror": 4166.25,
+      "Trunk": 15276.25,
+      "Roof": 19442.5,
+      "Fender": 11110.0,
+      "Quarter-panel": 12498.75,
+      "Rocker-panel": 8332.5,
+      "Front-wheel": 5555.0,
+      "Back-wheel": 5555.0,
+      "License-plate": 2777.5,
+      "default": 2777.5
+    },
+    "damage_multipliers": {
+      "Dent": [
+        0.2,
+        0.4,
+        0.6
+      ],
+      "Paint Wear": [
+        0.1,
+        0.2,
+        0.3
+      ],
+      "General": [
+        0.15,
+        0.3,
+        0.5
+      ],
+      "Hits / Impacts": [
+        0.3,
+        0.6,
+        1.0
+      ],
+      "Rust / Oxidation": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "Scratches": [
+        0.1,
+        0.15,
+        0.2
+      ],
+      "Broken Light": [
+        0.4,
+        0.7,
+        1.0
+      ],
+      "Broken Glass": [
+        0.5,
+        0.8,
+        1.0
+      ],
+      "Broken Mirror": [
+        0.6,
+        0.6,
+        0.6
+      ],
+      "Flat/Damaged Tire": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "Unknown": [
+        0.2,
+        0.3,
+        0.4
+      ]
+    }
+  },
+  "model_params": {
+    "detectron2_base_config": "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml",
+    "part_seg_conf_thres": 0.8,
+    "damage_seg_conf_thres": 0.25,
+    "damage_detector_input_size": [
+      640,
+      640
+    ],
+    "damage_detector_conf_threshold": 0.2,
+    "damage_detector_iou_threshold": 0.45,
+    "severity_classifier_input_size": [
+      224,
+      224
+    ]
+  },
+  "processing_params": {
+    "damage_class_label_in_segmenter": "Damage",
+    "cost_estimation_iou_threshold": 0.05
+  }
+}
