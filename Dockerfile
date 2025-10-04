@@ -15,7 +15,8 @@ WORKDIR /insurevis
 # Copy the requirements file and install Python packages
 # This step will now succeed because the build tools are present.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your application source code (e.g., app.py)
 COPY . .
