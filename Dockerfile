@@ -37,4 +37,4 @@ ADD ["https://insurevisstorage.blob.core.windows.net/models/Severity Classificat
 EXPOSE 5001
 
 # The command to run the application using the Gunicorn production server
-CMD ["gunicorn", "--bind", "0._0.0.0:5001", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", "app:app"]
