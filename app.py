@@ -65,7 +65,7 @@ CONFIG = load_config(CONFIG_FILE_PATH)
 # ===========================
 
 # --- Model Paths (Keep using environment variables or direct paths for flexibility) ---
-MODEL_DIR = os.environ.get("MODEL_DIR", "/Car Damage Estimation Models/")
+MODEL_DIR = os.environ.get("MODEL_DIR", "/models/")
 # Ensure MODEL_DIR exists
 if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
