@@ -33,9 +33,9 @@ RUN mkdir -p /models
 # !!! CRUCIAL STEP: Replace the placeholder URLs below with your actual model URLs !!!
 # Use one 'ADD' line for each of your four models. Destination paths must exactly match
 # the filenames referenced in `app.py` (see MODEL_DIR constants).
-ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Damage Segmentation Model.pth","/models/Car Damage Segmentation Model.pth"]
+# ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Damage Segmentation Model.pth","/models/Car Damage Segmentation Model.pth"]
 ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Parts Segmentation Model.pth","/models/Car Parts Segmentation Model.pth"]
-ADD ["https://insurevisstorage.blob.core.windows.net/models/Damage Type Object Detection Model.onnx","/models/Damage Type Object Detection Model.onnx"]
+# ADD ["https://insurevisstorage.blob.core.windows.net/models/Damage Type Object Detection Model.onnx","/models/Damage Type Object Detection Model.onnx"]
 ADD ["https://insurevisstorage.blob.core.windows.net/models/Severity Classification Model.onnx","/models/Severity Classification Model.onnx"]
 ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Damage Type Segmentation Model.pth","/models/Car Damage Type Segmentation Model.pth"]
 
