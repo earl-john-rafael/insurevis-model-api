@@ -2,25 +2,25 @@
   "class_names": {
     "car_parts": [
       "Background",
-      "Back-bumper",
-      "Back-door",
-      "Back-wheel",
-      "Back-window",
-      "Back-windshield",
+      "Back Bumper",
+      "Back Door",
+      "Back Wheel",
+      "Back Window",
+      "Back Windshield",
       "Fender",
-      "Front-bumper",
-      "Front-door",
-      "Front-wheel",
-      "Front-window",
+      "Front Bumper",
+      "Front Door",
+      "Front Wheel",
+      "Front Window",
       "Grille",
       "Headlight",
       "Hood",
-      "License-plate",
+      "License Plate",
       "Mirror",
-      "Quarter-panel",
-      "Rocker-panel",
+      "Quarter Panel",
+      "Rocker Panel",
       "Roof",
-      "Tail-light",
+      "Tail Light",
       "Trunk",
       "Windshield",
       "Background",
@@ -84,23 +84,17 @@
     ],
     "damage_segmentation": [
       "Background",
-      "Damage",
-      "Background",
-      "Background",
-      "Background"
-    ],
-    "severity": [
-      "minor",
-      "moderate",
-      "severe"
-    ],
-    "damage_types": [
       "Crack",
       "Dent",
       "Shattered Glass",
       "Broken Lamp",
       "Scratch / Paint Wear",
       "Flat Tire"
+    ],
+    "severity": [
+      "minor",
+      "moderate",
+      "severe"
     ]
   },
   "costs": {

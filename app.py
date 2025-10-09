@@ -7,7 +7,6 @@ import numpy as np
 import cv2
 import onnxruntime as ort
 # from shapely.geometry import Polygon # Keep if needed, else remove
-from PIL import Image
 from typing import List, Dict, Tuple
 import json
 
@@ -72,9 +71,8 @@ if not os.path.exists(MODEL_DIR):
     print(f"Created model directory: {MODEL_DIR}")
 
 PART_SEG_MODEL_PATH = os.path.join(MODEL_DIR, "Car Parts Segmentation Model.pth")
-DAMAGE_SEG_MODEL_PATH = os.path.join(MODEL_DIR, "Car Damage Segmentation Model.pth")
+DAMAGE_SEG_MODEL_PATH = os.path.join(MODEL_DIR, "Car Damage Types Segmentation Model.pth")
 SEVERITY_CLASS_MODEL_PATH = os.path.join(MODEL_DIR, "Severity Classification Model.onnx")
-DAMAGE_TYPE_DETECT_MODEL_PATH = os.path.join(MODEL_DIR, "Damage Type Object Detection Model.onnx")
 
 
 # --- Extract Model Parameters from CONFIG ---
@@ -85,19 +83,15 @@ if MASKRCNN_CONFIG_FILE is None:
 
 PART_SEG_CONF_THRES = CONFIG['model_params'].get('part_seg_conf_thres', 0.5)
 DAMAGE_SEG_CONF_THRES = CONFIG['model_params'].get('damage_seg_conf_thres', 0.5)
-DAMAGE_DETECTOR_INPUT_SIZE = tuple(CONFIG['model_params'].get('damage_detector_input_size', [640, 640])) # Convert list to tuple
-DAMAGE_DETECTOR_CONF_THRESHOLD = CONFIG['model_params'].get('damage_detector_conf_threshold', 0.5)
-DAMAGE_DETECTOR_IOU_THRESHOLD = CONFIG['model_params'].get('damage_detector_iou_threshold', 0.4)
 SEVERITY_CLASSIFIER_INPUT_SIZE = tuple(CONFIG['model_params'].get('severity_classifier_input_size', [224, 224]))
 
 # --- Extract Class Names from CONFIG ---
 car_part_classes = CONFIG['class_names'].get('car_parts', [])
 damage_segmentation_class_names = CONFIG['class_names'].get('damage_segmentation', [])
 severity_names = CONFIG['class_names'].get('severity', ["Low", "Medium", "High"])
-damage_type_names = CONFIG['class_names'].get('damage_types', ["Dent", "Scratch", "Crack", "Broken"])
 
-if not car_part_classes or not damage_segmentation_class_names or not damage_type_names:
-     print("FATAL ERROR: Class names lists ('car_parts', 'damage_segmentation', 'damage_types') are missing or empty in config.json.")
+if not car_part_classes or not damage_segmentation_class_names:
+     print("FATAL ERROR: Class names lists ('car_parts', 'damage_segmentation') are missing or empty in config.json.")
      exit(1)
 
 
@@ -110,16 +104,6 @@ if not part_base_costs or not damage_multipliers:
 
 # --- Extract Processing Parameters from CONFIG ---
 COST_ESTIMATION_IOU_THRESHOLD = CONFIG['processing_params'].get('cost_estimation_iou_threshold', 0.3)
-DAMAGE_CLASS_LABEL_IN_SEGMENTER = CONFIG['processing_params'].get('damage_class_label_in_segmenter', 'Damage')
-
-# --- Derive Damage Class Index (Important!) ---
-try:
-    DAMAGE_CLASS_INDEX_IN_SEGMENTER = damage_segmentation_class_names.index(DAMAGE_CLASS_LABEL_IN_SEGMENTER)
-    print(f"Derived damage class index for label '{DAMAGE_CLASS_LABEL_IN_SEGMENTER}' is: {DAMAGE_CLASS_INDEX_IN_SEGMENTER}")
-except ValueError:
-    print(f"FATAL ERROR: Damage label '{DAMAGE_CLASS_LABEL_IN_SEGMENTER}' defined in config "
-          f"not found in damage_segmentation class list: {damage_segmentation_class_names}")
-    exit(1)
 
 
 # ===========================
@@ -200,12 +184,6 @@ try:
     classifier_session = ort.InferenceSession(SEVERITY_CLASS_MODEL_PATH, providers=providers)
     print(f"ONNX Severity Classifier '{os.path.basename(SEVERITY_CLASS_MODEL_PATH)}' loaded with providers: {classifier_session.get_providers()}.")
 
-    if not os.path.exists(DAMAGE_TYPE_DETECT_MODEL_PATH):
-         print(f"FATAL ERROR: Damage Type Detector model not found at: {DAMAGE_TYPE_DETECT_MODEL_PATH}")
-         raise FileNotFoundError(f"Damage Type Detector model not found: {DAMAGE_TYPE_DETECT_MODEL_PATH}. Ensure the model is placed in the '{MODEL_DIR}' directory.")
-    detector_session = ort.InferenceSession(DAMAGE_TYPE_DETECT_MODEL_PATH, providers=providers) # Use same providers
-    print(f"ONNX Damage Type Detector '{os.path.basename(DAMAGE_TYPE_DETECT_MODEL_PATH)}' loaded with providers: {detector_session.get_providers()}.")
-
     print(f"All models loaded successfully in {time.time() - start_time:.2f} seconds.")
 
 # Specific check for FileNotFoundError raised by loading helpers
@@ -220,208 +198,6 @@ except Exception as load_error:
 # ===========================
 # 🛠️ Helper Functions (Now use global constants derived from JSON)
 # ===========================
-
-# --- NMS for ONNX Damage Detector ---
-def non_max_suppression_for_damage_detector(boxes, scores, iou_threshold):
-    if boxes.shape[0] == 0: return []
-    x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-    areas = (x2 - x1) * (y2 - y1)
-    order = scores.argsort()[::-1]
-    keep = []
-    while order.size > 0:
-        i = order[0]
-        keep.append(i)
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.minimum(x2[i], x2[order[1:]])
-        yy2 = np.minimum(y2[i], y2[order[1:]])
-        w = np.maximum(0.0, xx2 - xx1)
-        h = np.maximum(0.0, yy2 - yy1)
-        intersection = w * h
-        iou = intersection / (areas[i] + areas[order[1:]] - intersection + 1e-5)
-        inds = np.where(iou <= iou_threshold)[0]
-        order = order[inds + 1]
-    return keep
-
-# --- Post-processing for ONNX Damage Detector ---
-def postprocess_onnx_damage_detections(
-    outputs, original_width, original_height,
-    input_width, input_height, conf_threshold,
-    iou_threshold, class_names_list
-):
-    if not outputs or len(outputs) == 0 or outputs[0].ndim < 2:
-        # print("Warning: Damage detector returned unexpected output format or is empty.") # Too verbose
-        return []
-
-    raw_output_tensor = outputs[0]
-
-    # Try to guess the output format (common YOLO formats)
-    # Format 1: (1, num_detections, 4 + num_classes)
-    # Format 2: (1, 4 + num_classes, num_detections) - Transposed
-    # Format 3: (num_detections, 4 + num_classes) - Single batch inference
-
-    num_classes = len(class_names_list)
-    expected_cols_or_rows = 4 + num_classes
-
-    if raw_output_tensor.ndim == 3 and raw_output_tensor.shape[0] == 1:
-        if raw_output_tensor.shape[2] == expected_cols_or_rows:
-            raw_detections = raw_output_tensor[0] # Shape (num_detections, 4 + num_classes)
-            # print("Detected YOLO format: (1, num_detections, 4 + num_classes)")
-        # FIX: Changed expected_cols_or_classes to expected_cols_or_rows
-        elif raw_output_tensor.shape[1] == expected_cols_or_rows:
-            raw_detections = raw_output_tensor[0].T # Shape (num_detections, 4 + num_classes)
-            # print("Detected YOLO format: (1, 4 + num_classes, num_detections), transposed.")
-        else:
-             print(f"Error: Damage detector unexpected output shape {raw_output_tensor.shape}. Expected {expected_cols_or_rows} in dim 1 or 2.")
-             return []
-    elif raw_output_tensor.ndim == 2 and raw_output_tensor.shape[1] == expected_cols_or_rows:
-         raw_detections = raw_output_tensor # Shape (num_detections, 4 + num_classes)
-         # print("Detected YOLO format: (num_detections, 4 + num_classes)")
-    else:
-        print(f"Unable to handle unexpected damage detector output shape {raw_output_tensor.shape}.")
-        return []
-
-    detections_processed = []
-    scale_x = original_width / input_width
-    scale_y = original_height / input_height
-
-    # Processing based on (num_detections, 4 + num_classes) format
-    for row in raw_detections:
-        if len(row) < 4 + num_classes:
-            print(f"Warning: Skipping row with unexpected length {len(row)} in damage detector output.")
-            continue
-
-        box_coords, class_probs = row[:4], row[4:]
-
-        if len(class_probs) != num_classes:
-             print(f"Warning: Skipping row with incorrect number of class probabilities ({len(class_probs)} vs {num_classes}).")
-             continue
-
-        max_score_index = np.argmax(class_probs)
-        max_score = class_probs[max_score_index]
-
-        if max_score >= conf_threshold:
-            class_id = max_score_index
-            cx, cy, w, h = box_coords
-
-            # Ensure bounding box dimensions are positive
-            if w <= 0 or h <= 0:
-                 # print(f"Warning: Skipping detection with non-positive width or height: w={w}, h={h}")
-                 continue
-
-            # Convert center-wh to min-max and scale to original image size
-            x_min_inp = cx - w / 2
-            y_min_inp = cy - h / 2
-            x_max_inp = cx + w / 2
-            y_max_inp = cy + h / 2
-
-            # Clamp coordinates to image boundaries
-            orig_x_min = max(0.0, x_min_inp * scale_x)
-            orig_y_min = max(0.0, y_min_inp * scale_y)
-            orig_x_max = min(original_width - 1.0, x_max_inp * scale_x)
-            orig_y_max = min(original_height - 1.0, y_max_inp * scale_y)
-
-            # Ensure calculated original size is valid
-            if orig_x_max <= orig_x_min or orig_y_max <= orig_y_min:
-                 # print(f"Warning: Skipping detection with invalid original coordinates: x_min={orig_x_min}, y_min={orig_y_min}, x_max={orig_x_max}, y_max={orig_y_max}")
-                 continue
-
-            detections_processed.append({
-                "box": [orig_x_min, orig_y_min, orig_x_max, orig_y_max],
-                "score": float(max_score),
-                "class_id": int(class_id)
-            })
-
-    if not detections_processed:
-        # print("Info: No detections above confidence threshold.") # Too verbose
-        return []
-
-    # Prepare for NMS
-    boxes_np = np.array([d["box"] for d in detections_processed]).astype(np.float32)
-    scores_np = np.array([d["score"] for d in detections_processed]).astype(np.float32)
-    class_ids_np = np.array([d["class_id"] for d in detections_processed]).astype(np.int64)
-
-    final_detections = []
-    unique_classes = np.unique(class_ids_np)
-
-    # Apply NMS per class (standard practice for object detection)
-    for cls in unique_classes:
-        cls_indices = np.where(class_ids_np == cls)[0]
-        cls_boxes = boxes_np[cls_indices]
-        cls_scores = scores_np[cls_indices]
-
-        if cls_boxes.shape[0] > 0:
-             # Apply NMS to detections of this class
-             keep_indices_for_cls = non_max_suppression_for_damage_detector(
-                 cls_boxes, cls_scores, iou_threshold
-             )
-
-             # Map the kept indices back to the original detections_processed list
-             original_indices_kept = cls_indices[keep_indices_for_cls]
-
-             for original_idx in original_indices_kept:
-                 det = detections_processed[original_idx]
-                 class_id_val = det['class_id']
-                 try:
-                     class_name = class_names_list[class_id_val]
-                 except IndexError:
-                     print(f"Warning: Damage detector class ID {class_id_val} out of bounds for {len(class_names_list)} classes. Using 'Unknown'.")
-                     class_name = "Unknown" # Fallback name
-
-                 final_detections.append({
-                     "box": [int(coord) for coord in det['box']],
-                     "class_name": class_name,
-                     "confidence": float(det['score']),
-                     "class_id": int(class_id_val)
-                 })
-
-    return final_detections
-
-
-# --- Run ONNX Damage Type Detector ---
-def run_onnx_damage_type_detector(image_numpy_bgr, detector_session):
-    if image_numpy_bgr is None or image_numpy_bgr.size == 0:
-        print("Warning: Empty image passed to run_onnx_damage_type_detector.")
-        return [] # Return empty list for no detections
-
-    original_height, original_width = image_numpy_bgr.shape[:2]
-    try:
-        # Convert BGR to RGB for PIL, resize, normalize
-        # Ensure image_numpy_bgr is C_CONTIGUOUS
-        if not image_numpy_bgr.flags['C_CONTIGUOUS']:
-            image_numpy_bgr = np.ascontiguousarray(image_numpy_bgr)
-
-        image_rgb = cv2.cvtColor(image_numpy_bgr, cv2.COLOR_BGR2RGB)
-        img_pil = Image.fromarray(image_rgb)
-        # Use global constant DAMAGE_DETECTOR_INPUT_SIZE
-        img_resized_pil = img_pil.resize(DAMAGE_DETECTOR_INPUT_SIZE, Image.LANCZOS)
-        img_array = np.array(img_resized_pil, dtype=np.float32) / 255.0
-        img_transposed = np.transpose(img_array, (2, 0, 1)) # HWC to CHW
-        input_tensor = np.expand_dims(img_transposed, axis=0) # Add batch dim
-
-        input_name = detector_session.get_inputs()[0].name
-        output_names = [out.name for out in detector_session.get_outputs()]
-
-        outputs_onnx = detector_session.run(output_names, {input_name: input_tensor})
-
-        # Use global constants for postprocessing parameters and class names
-        detections = postprocess_onnx_damage_detections(
-            outputs_onnx,
-            original_width, original_height,
-            DAMAGE_DETECTOR_INPUT_SIZE[0], DAMAGE_DETECTOR_INPUT_SIZE[1],
-            DAMAGE_DETECTOR_CONF_THRESHOLD, # Global constant
-            DAMAGE_DETECTOR_IOU_THRESHOLD,  # Global constant
-            damage_type_names            # Global constant
-        )
-
-        # Return full detection dicts (with class_name and confidence)
-        return detections
-
-    except Exception as e:
-        print(f"Error during ONNX Damage Type Detector inference: {e}")
-        traceback.print_exc()
-        return [] # Return empty list on error
-
 
 # --- IoU Calculation ---
 def compute_iou(mask1, mask2):
@@ -537,15 +313,11 @@ def resize_large_image(image_bgr, max_dimension=4000):
 # --- Logical Consistency Filter ---
 def apply_logical_consistency_filter(damages):
     """
-    Apply logical consistency rules to filter out impossible damage combinations
+    Apply logical consistency rules to filter out impossible damage combinations.
+    Since we no longer detect specific damage types, this primarily filters based on confidence.
     """
     if not damages:
         return damages
-
-    # Define logical rules
-    glass_parts = {"Windshield", "Front-window", "Back-window", "Back-windshield", "Headlight", "Tail-light"}
-    plastic_metal_parts = {"Front-bumper", "Back-bumper", "Hood", "Trunk", "Fender", "Quarter-panel", "Rocker-panel", "Front-door", "Back-door"}
-    lamp_parts = {"Headlight", "Tail-light"}
 
     filtered_damages = []
 
@@ -554,43 +326,11 @@ def apply_logical_consistency_filter(damages):
         part = damage.get("damaged_part", "unknown")
         confidence = damage.get("confidence")
 
-        # Check for logical consistency
-        is_valid, reason = is_logically_consistent(damage_type, part, confidence, glass_parts, plastic_metal_parts, lamp_parts)
-
-        if is_valid:
-            filtered_damages.append(damage)
-        else:
-            print(f"   🚫 Filtered illogical detection: {damage_type} on {part} - {reason}")
+        # Since damage_type is now generic "Damage", we only filter based on confidence
+        # Keep all damages since they're already validated by segmentation models
+        filtered_damages.append(damage)
 
     return filtered_damages
-
-def is_logically_consistent(damage_type, part, confidence, glass_parts, plastic_metal_parts, lamp_parts):
-    """Check if damage type and part combination is logically consistent"""
-
-    # Rule 1: Shattered Glass can only occur on glass parts
-    if damage_type == "Shattered Glass" and part not in glass_parts:
-        return False, f"Shattered glass cannot occur on {part} (not a glass part)"
-
-    # Rule 2: Broken Lamp should primarily occur on lamp parts or bumpers (headlight/taillight integration)
-    if damage_type == "Broken Lamp":
-        if part == "Trunk":
-            return False, "Broken lamp on trunk is highly unusual"
-        if part not in lamp_parts and part not in {"Front-bumper", "Back-bumper"}:
-            return False, f"Broken lamp on {part} is unusual"
-
-    # Rule 3: Filter out Unknown damages with null confidence (high uncertainty)
-    if damage_type == "Unknown" and confidence is None:
-        return False, "Unknown damage type with null confidence indicates high model uncertainty"
-
-    # Rule 4: Filter out very low confidence detections
-    if confidence is not None and confidence < 0.45:
-        return False, f"Very low confidence ({confidence:.3f}) indicates unreliable detection"
-
-    # Rule 5: Damage types that don't make sense on certain parts
-    if damage_type == "Flat Tire" and "wheel" not in part.lower():
-        return False, f"Flat tire can only occur on wheel parts, not {part}"
-
-    return True, "Logically consistent"
 
 def validate_severity_consistency(damages, severity):
     """Validate that severity matches damage count and types"""
@@ -686,7 +426,7 @@ CORS(app) # Apply CORS to your app
 @app.route('/')
 def home():
     # Add simple check for models existing on startup
-    model_files = [PART_SEG_MODEL_PATH, DAMAGE_SEG_MODEL_PATH, SEVERITY_CLASS_MODEL_PATH, DAMAGE_TYPE_DETECT_MODEL_PATH]
+    model_files = [PART_SEG_MODEL_PATH, DAMAGE_SEG_MODEL_PATH, SEVERITY_CLASS_MODEL_PATH]
     missing_models = [f for f in model_files if not os.path.exists(f)]
     status_message = "Car Damage Estimation API is running."
     overall_status = "OK"
@@ -702,7 +442,7 @@ def predict_damage_cost():
     print("\nReceived request on /predict")
     start_req_time = time.time()
     if 'part_predictor' not in globals() or 'damage_predictor' not in globals() or \
-       'classifier_session' not in globals() or 'detector_session' not in globals():
+       'classifier_session' not in globals():
         print("Error: Models are not loaded. Check server startup logs.")
         return jsonify({"error": "Server internal error: Models not loaded."}), 500
     if 'image_file' not in request.files:
@@ -739,17 +479,31 @@ def predict_damage_cost():
         print(f"Part Segmentation found {len(part_masks)} masks.")
         # Run damage segmentation
         print("Running Damage Segmentation...")
-        all_damage_masks, all_damage_classes = run_mask_rcnn(image_bgr, damage_predictor)
-        damage_masks = np.array([])
-        if all_damage_masks.size > 0 and all_damage_classes.size > 0 and len(all_damage_masks) == len(all_damage_classes):
-            if not all_damage_masks.flags['C_CONTIGUOUS']:
-                all_damage_masks = np.ascontiguousarray(all_damage_masks)
-            damage_masks = all_damage_masks[all_damage_classes == DAMAGE_CLASS_INDEX_IN_SEGMENTER]
-            print(f"Damage Segmentation found {len(damage_masks)} damage masks.")
+        all_damage_masks, all_damage_class_idxs = run_mask_rcnn(image_bgr, damage_predictor)
+        
+        # Filter out "Background" class (index 0) - we only want actual damage types
+        if all_damage_masks.size > 0 and all_damage_class_idxs.size > 0:
+            # Keep only non-background damage masks
+            non_background_indices = all_damage_class_idxs != 0
+            damage_masks = all_damage_masks[non_background_indices]
+            damage_class_idxs = all_damage_class_idxs[non_background_indices]
+            print(f"Damage Segmentation found {len(all_damage_masks)} total masks, {len(damage_masks)} actual damage masks (filtered out background).")
         else:
-            print("No valid damage masks found.")
+            damage_masks = np.array([])
+            damage_class_idxs = np.array([])
+            print("No damage masks found.")
+        
         print(f"Part masks count: {len(part_masks)}")
         print(f"Damage masks count: {len(damage_masks)}")
+        
+        # Map damage class indices to labels
+        damage_type_labels = []
+        if damage_class_idxs.size > 0:
+            for idx in damage_class_idxs:
+                if 0 <= idx < len(damage_segmentation_class_names):
+                    damage_type_labels.append(damage_segmentation_class_names[idx])
+                else:
+                    damage_type_labels.append(f"Unknown_Damage_Idx_{idx}")
         # Map part class indices to labels
         part_labels = []
         if part_class_idxs.size > 0:
@@ -763,6 +517,9 @@ def predict_damage_cost():
         overlap_count = 0
         if damage_masks.size > 0 and part_masks.size > 0:
             for i, dmg_mask in enumerate(damage_masks):
+                # Get the damage type for this mask
+                damage_type = damage_type_labels[i] if i < len(damage_type_labels) else "Unknown"
+                
                 for j, part_mask in enumerate(part_masks):
                     iou = compute_iou(dmg_mask.astype(bool), part_mask.astype(bool))
                     if iou > COST_ESTIMATION_IOU_THRESHOLD:
@@ -782,17 +539,14 @@ def predict_damage_cost():
                         crop_x_max = min(img_w, x_max + 1 + padding)
                         if crop_y_max <= crop_y_min or crop_x_max <= crop_x_min:
                             continue
-                        cropped_image_bgr = image_bgr[crop_y_min:crop_y_max, crop_x_min:crop_x_max].copy()
-                        detected_damage_detections = run_onnx_damage_type_detector(cropped_image_bgr, detector_session)
-                        if not detected_damage_detections:
-                            detected_damage_detections = [{"class_name": "Unknown", "confidence": None}]
-                        for det in detected_damage_detections:
-                            damages.append({
-                                "damage_type": det.get("class_name", "Unknown"),
-                                "confidence": det.get("confidence", None),
-                                "damaged_part": part_name,
-                                "bounding_box": [crop_x_min, crop_y_min, crop_x_max, crop_y_max]
-                            })
+                        
+                        # Record the damaged part with its damage type from segmentation
+                        damages.append({
+                            "damage_type": damage_type,
+                            "confidence": None,
+                            "damaged_part": part_name,
+                            "bounding_box": [crop_x_min, crop_y_min, crop_x_max, crop_y_max]
+                        })
         print(f"Total overlaps found: {overlap_count}")
 
         # Apply part-level deduplication to remove overlapping damages
@@ -847,7 +601,7 @@ if __name__ == '__main__':
     print("Starting Car Damage Estimation API...")
 
     # Add a quick check on startup to remind the user if models are missing
-    model_files = [PART_SEG_MODEL_PATH, DAMAGE_SEG_MODEL_PATH, SEVERITY_CLASS_MODEL_PATH, DAMAGE_TYPE_DETECT_MODEL_PATH]
+    model_files = [PART_SEG_MODEL_PATH, DAMAGE_SEG_MODEL_PATH, SEVERITY_CLASS_MODEL_PATH]
     missing_models = [f for f in model_files if not os.path.exists(f)]
     if missing_models:
         print("\n" + "="*50)

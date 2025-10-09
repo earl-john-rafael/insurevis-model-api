@@ -37,6 +37,7 @@ ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Damage Segmentat
 ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Parts Segmentation Model.pth","/models/Car Parts Segmentation Model.pth"]
 ADD ["https://insurevisstorage.blob.core.windows.net/models/Damage Type Object Detection Model.onnx","/models/Damage Type Object Detection Model.onnx"]
 ADD ["https://insurevisstorage.blob.core.windows.net/models/Severity Classification Model.onnx","/models/Severity Classification Model.onnx"]
+ADD ["https://insurevisstorage.blob.core.windows.net/models/Car Damage Type Segmentation Model.pth","/models/Car Damage Type Segmentation Model.pth"]
 
 
 # Expose the port the app will run on
