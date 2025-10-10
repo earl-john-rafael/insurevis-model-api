@@ -71,7 +71,7 @@ if not os.path.exists(MODEL_DIR):
     print(f"Created model directory: {MODEL_DIR}")
 
 PART_SEG_MODEL_PATH = os.path.join(MODEL_DIR, "Car Parts Segmentation Model.pth")
-DAMAGE_SEG_MODEL_PATH = os.path.join(MODEL_DIR, "Car Damage Types Segmentation Model.pth")
+DAMAGE_SEG_MODEL_PATH = os.path.join(MODEL_DIR, "Car Damage Type Segmentation Model.pth")
 SEVERITY_CLASS_MODEL_PATH = os.path.join(MODEL_DIR, "Severity Classification Model.onnx")
 
 
