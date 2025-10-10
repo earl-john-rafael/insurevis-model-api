@@ -641,6 +641,8 @@ def predict_damage_cost():
                     if iou > COST_ESTIMATION_IOU_THRESHOLD:
                         overlap_count += 1
                         part_name = part_labels[j] if j < len(part_labels) else f"Part_{j}"
+                        # Get the confidence score for this part detection
+                        part_confidence = float(part_scores[j]) if j < len(part_scores) else None
                         overlap_mask_bool = np.logical_and(dmg_mask.astype(bool), part_mask.astype(bool))
                         rows, cols = np.where(overlap_mask_bool)
                         if rows.size == 0 or cols.size == 0:
@@ -661,6 +663,7 @@ def predict_damage_cost():
                             "damage_type": damage_type,
                             "confidence": damage_confidence,
                             "damaged_part": part_name,
+                            "part_confidence": part_confidence,
                             "bounding_box": [crop_x_min, crop_y_min, crop_x_max, crop_y_max]
                         })
         print(f"Total overlaps found: {overlap_count}")
