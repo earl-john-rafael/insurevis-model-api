@@ -393,7 +393,7 @@ def run_yolo_classifier(image, classifier_session):
 def run_mask_rcnn(image, predictor):
     if image is None or image.size == 0:
         print("Warning: Empty image passed to run_mask_rcnn.")
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
 
     try:
         # Ensure image is C_CONTIGUOUS for Detectron2
@@ -404,15 +404,16 @@ def run_mask_rcnn(image, predictor):
         instances = outputs["instances"].to("cpu") # Always move results to CPU
         if not instances.has("pred_masks") or not instances.has("pred_classes"):
              # print("Warning: Detectron2 output missing 'pred_masks' or 'pred_classes'.") # Too verbose
-             return np.array([]), np.array([])
+             return np.array([]), np.array([]), np.array([])
         masks = instances.pred_masks.numpy() # Shape (N, H, W) boolean
         classes = instances.pred_classes.numpy() # Shape (N,) int
+        scores = instances.scores.numpy() if instances.has("scores") else np.array([])
 
-        return masks, classes
+        return masks, classes, scores
     except Exception as e:
         print(f"Error during Detectron2 inference: {e}")
         traceback.print_exc()
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
 
 
 # --- Estimate Repair Cost ---
@@ -475,22 +476,25 @@ def predict_damage_cost():
     try:
         # Run part segmentation
         print("Running Part Segmentation...")
-        part_masks, part_class_idxs = run_mask_rcnn(image_bgr, part_predictor)
+        part_masks, part_class_idxs, part_scores = run_mask_rcnn(image_bgr, part_predictor)
         print(f"Part Segmentation found {len(part_masks)} masks.")
         # Run damage segmentation
         print("Running Damage Segmentation...")
-        all_damage_masks, all_damage_class_idxs = run_mask_rcnn(image_bgr, damage_predictor)
+        all_damage_masks, all_damage_class_idxs, all_damage_scores = run_mask_rcnn(image_bgr, damage_predictor)
         
         # Filter out "Background" class (index 0) - we only want actual damage types
+        # Note: Since config.json no longer has "Background" at index 0, we need to subtract 1 from class indices
         if all_damage_masks.size > 0 and all_damage_class_idxs.size > 0:
             # Keep only non-background damage masks
             non_background_indices = all_damage_class_idxs != 0
             damage_masks = all_damage_masks[non_background_indices]
-            damage_class_idxs = all_damage_class_idxs[non_background_indices]
+            damage_class_idxs = all_damage_class_idxs[non_background_indices] - 1  # Subtract 1 to match config indices
+            damage_scores = all_damage_scores[non_background_indices] if all_damage_scores.size > 0 else np.array([])
             print(f"Damage Segmentation found {len(all_damage_masks)} total masks, {len(damage_masks)} actual damage masks (filtered out background).")
         else:
             damage_masks = np.array([])
             damage_class_idxs = np.array([])
+            damage_scores = np.array([])
             print("No damage masks found.")
         
         print(f"Part masks count: {len(part_masks)}")
@@ -519,6 +523,8 @@ def predict_damage_cost():
             for i, dmg_mask in enumerate(damage_masks):
                 # Get the damage type for this mask
                 damage_type = damage_type_labels[i] if i < len(damage_type_labels) else "Unknown"
+                # Get the confidence score for this damage detection
+                damage_confidence = float(damage_scores[i]) if i < len(damage_scores) else None
                 
                 for j, part_mask in enumerate(part_masks):
                     iou = compute_iou(dmg_mask.astype(bool), part_mask.astype(bool))
@@ -543,7 +549,7 @@ def predict_damage_cost():
                         # Record the damaged part with its damage type from segmentation
                         damages.append({
                             "damage_type": damage_type,
-                            "confidence": None,
+                            "confidence": damage_confidence,
                             "damaged_part": part_name,
                             "bounding_box": [crop_x_min, crop_y_min, crop_x_max, crop_y_max]
                         })
