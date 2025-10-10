@@ -314,22 +314,132 @@ def resize_large_image(image_bgr, max_dimension=4000):
 def apply_logical_consistency_filter(damages):
     """
     Apply logical consistency rules to filter out impossible damage combinations.
-    Since we no longer detect specific damage types, this primarily filters based on confidence.
+    Rules enforce physical constraints and spatial coherence:
+    - Damage types must be compatible with parts (e.g., no "Shattered Glass" on "Hood")
+    - Front/rear parts shouldn't mix in the same damage set (spatial coherence)
+    - Specific damage-part combinations that are physically impossible are filtered
     """
     if not damages:
         return damages
 
+    # Define valid damage-part combinations
+    PART_DAMAGE_COMPATIBILITY = {
+        # Glass-related parts can only have glass damage types
+        "Back Window": ["Shattered Glass", "Crack"],
+        "Front Window": ["Shattered Glass", "Crack"],
+        "Back Windshield": ["Shattered Glass", "Crack"],
+        "Windshield": ["Shattered Glass", "Crack"],
+        
+        # Lamps can have specific damage types
+        "Headlight": ["Broken Lamp", "Crack", "Shattered Glass"],
+        "Tail Light": ["Broken Lamp", "Crack", "Shattered Glass"],
+        
+        # Wheels have specific damage patterns
+        "Front Wheel": ["Flat Tire", "Scratch / Paint Wear", "Dent"],
+        "Back Wheel": ["Flat Tire", "Scratch / Paint Wear", "Dent"],
+        
+        # Body panels - no glass or lamp damage
+        "Hood": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Trunk": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Roof": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Fender": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Quarter Panel": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Rocker Panel": ["Dent", "Scratch / Paint Wear", "Crack"],
+        
+        # Doors can have various damage
+        "Front Door": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Back Door": ["Dent", "Scratch / Paint Wear", "Crack"],
+        
+        # Bumpers and grille
+        "Front Bumper": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Back Bumper": ["Dent", "Scratch / Paint Wear", "Crack"],
+        "Grille": ["Crack", "Dent", "Scratch / Paint Wear"],
+        
+        # Mirrors and license plates
+        "Mirror": ["Shattered Glass", "Crack", "Scratch / Paint Wear"],
+        "License Plate": ["Dent", "Scratch / Paint Wear"],
+    }
+    
+    # Define front/rear part categories for spatial coherence
+    FRONT_PARTS = {
+        "Hood", "Front Bumper", "Front Door", "Front Wheel", 
+        "Front Window", "Grille", "Headlight", "Windshield", "Fender"
+    }
+    
+    REAR_PARTS = {
+        "Trunk", "Back Bumper", "Back Door", "Back Wheel",
+        "Back Window", "Back Windshield", "Tail Light", "Quarter Panel"
+    }
+    
     filtered_damages = []
-
+    removed_count = 0
+    
+    # Step 1: Filter by damage-part compatibility
+    compatible_damages = []
     for damage in damages:
         damage_type = damage.get("damage_type", "Unknown")
-        part = damage.get("damaged_part", "unknown")
-        confidence = damage.get("confidence")
-
-        # Since damage_type is now generic "Damage", we only filter based on confidence
-        # Keep all damages since they're already validated by segmentation models
-        filtered_damages.append(damage)
-
+        part = damage.get("damaged_part", "Unknown")
+        confidence = damage.get("confidence", 0)
+        
+        # Check if this damage-part combination is valid
+        if part in PART_DAMAGE_COMPATIBILITY:
+            allowed_damages = PART_DAMAGE_COMPATIBILITY[part]
+            if damage_type in allowed_damages:
+                compatible_damages.append(damage)
+            else:
+                removed_count += 1
+                print(f"   🚫 Filtered incompatible: {damage_type} on {part} (not allowed)")
+        else:
+            # Unknown part - keep it but log
+            compatible_damages.append(damage)
+            if part not in ["Unknown", "Background"]:
+                print(f"   ⚠️  Unknown part '{part}' - keeping damage but not validated")
+    
+    # Step 2: Check spatial coherence (front vs rear)
+    if len(compatible_damages) > 1:
+        # Count front and rear parts
+        front_count = sum(1 for d in compatible_damages if d.get("damaged_part") in FRONT_PARTS)
+        rear_count = sum(1 for d in compatible_damages if d.get("damaged_part") in REAR_PARTS)
+        
+        # If we have both front and rear damages, filter out the minority
+        if front_count > 0 and rear_count > 0:
+            # Determine which side has more damage
+            if front_count > rear_count:
+                # Keep front, remove rear
+                print(f"   🔍 Spatial coherence: Detected {front_count} front + {rear_count} rear parts")
+                print(f"   🚫 Filtering out rear parts (minority)")
+                for damage in compatible_damages:
+                    part = damage.get("damaged_part")
+                    if part not in REAR_PARTS:
+                        filtered_damages.append(damage)
+                    else:
+                        removed_count += 1
+                        print(f"   🚫 Filtered spatial outlier: {damage.get('damage_type')} on {part}")
+            elif rear_count > front_count:
+                # Keep rear, remove front
+                print(f"   🔍 Spatial coherence: Detected {front_count} front + {rear_count} rear parts")
+                print(f"   🚫 Filtering out front parts (minority)")
+                for damage in compatible_damages:
+                    part = damage.get("damaged_part")
+                    if part not in FRONT_PARTS:
+                        filtered_damages.append(damage)
+                    else:
+                        removed_count += 1
+                        print(f"   🚫 Filtered spatial outlier: {damage.get('damage_type')} on {part}")
+            else:
+                # Equal counts - keep all (ambiguous case)
+                filtered_damages = compatible_damages
+                print(f"   ⚠️  Spatial ambiguity: Equal front ({front_count}) and rear ({rear_count}) parts - keeping all")
+        else:
+            # All same side or neutral - keep all
+            filtered_damages = compatible_damages
+    else:
+        # 0 or 1 damage - no spatial filtering needed
+        filtered_damages = compatible_damages
+    
+    if removed_count > 0:
+        print(f"   ✅ Logical consistency: Filtered {removed_count} inconsistent detections")
+    
     return filtered_damages
 
 def validate_severity_consistency(damages, severity):
@@ -555,19 +665,19 @@ def predict_damage_cost():
                         })
         print(f"Total overlaps found: {overlap_count}")
 
-        # # Apply part-level deduplication to remove overlapping damages
-        # print("Applying part-level damage deduplication...")
-        # original_damage_count = len(damages)
-        # damages = deduplicate_damages_per_part(damages)
-        # duplicates_removed = original_damage_count - len(damages)
-        # print(f"Deduplication complete: {original_damage_count} → {len(damages)} damages ({duplicates_removed} duplicates removed)")
+        # Apply part-level deduplication to remove overlapping damages
+        print("Applying part-level damage deduplication...")
+        original_damage_count = len(damages)
+        damages = deduplicate_damages_per_part(damages)
+        duplicates_removed = original_damage_count - len(damages)
+        print(f"Deduplication complete: {original_damage_count} → {len(damages)} damages ({duplicates_removed} duplicates removed)")
 
-        # # Apply logical consistency filter to remove impossible combinations
-        # print("Applying logical consistency filter...")
-        # pre_filter_count = len(damages)
-        # damages = apply_logical_consistency_filter(damages)
-        # logical_filtered = pre_filter_count - len(damages)
-        # print(f"Logical filtering complete: {pre_filter_count} → {len(damages)} damages ({logical_filtered} illogical detections removed)")
+        # Apply logical consistency filter to remove impossible combinations
+        print("Applying logical consistency filter...")
+        pre_filter_count = len(damages)
+        damages = apply_logical_consistency_filter(damages)
+        logical_filtered = pre_filter_count - len(damages)
+        print(f"Logical filtering complete: {pre_filter_count} → {len(damages)} damages ({logical_filtered} illogical detections removed)")
 
         # Determine overall severity
         print("Determining overall severity...")
@@ -579,8 +689,8 @@ def predict_damage_cost():
         else:
             print(f"Warning: Overall severity index {overall_severity_index} out of bounds for {len(severity_names)} severity names. Using 'Unknown'.")
 
-        # # Validate severity consistency
-        # overall_severity_name = validate_severity_consistency(damages, overall_severity_name)
+        # Validate severity consistency
+        overall_severity_name = validate_severity_consistency(damages, overall_severity_name)
 
         final_result = {
             "overall_severity": overall_severity_name,
