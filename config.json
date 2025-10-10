@@ -181,7 +181,7 @@
   },
   "model_params": {
     "detectron2_base_config": "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml",
-    "part_seg_conf_thres": 0.5,
+    "part_seg_conf_thres": 0.7,
     "damage_seg_conf_thres": 0.8,
     "damage_detector_input_size": [
       640,
