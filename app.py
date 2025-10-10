@@ -549,19 +549,19 @@ def predict_damage_cost():
                         })
         print(f"Total overlaps found: {overlap_count}")
 
-        # Apply part-level deduplication to remove overlapping damages
-        print("Applying part-level damage deduplication...")
-        original_damage_count = len(damages)
-        damages = deduplicate_damages_per_part(damages)
-        duplicates_removed = original_damage_count - len(damages)
-        print(f"Deduplication complete: {original_damage_count} → {len(damages)} damages ({duplicates_removed} duplicates removed)")
+        # # Apply part-level deduplication to remove overlapping damages
+        # print("Applying part-level damage deduplication...")
+        # original_damage_count = len(damages)
+        # damages = deduplicate_damages_per_part(damages)
+        # duplicates_removed = original_damage_count - len(damages)
+        # print(f"Deduplication complete: {original_damage_count} → {len(damages)} damages ({duplicates_removed} duplicates removed)")
 
-        # Apply logical consistency filter to remove impossible combinations
-        print("Applying logical consistency filter...")
-        pre_filter_count = len(damages)
-        damages = apply_logical_consistency_filter(damages)
-        logical_filtered = pre_filter_count - len(damages)
-        print(f"Logical filtering complete: {pre_filter_count} → {len(damages)} damages ({logical_filtered} illogical detections removed)")
+        # # Apply logical consistency filter to remove impossible combinations
+        # print("Applying logical consistency filter...")
+        # pre_filter_count = len(damages)
+        # damages = apply_logical_consistency_filter(damages)
+        # logical_filtered = pre_filter_count - len(damages)
+        # print(f"Logical filtering complete: {pre_filter_count} → {len(damages)} damages ({logical_filtered} illogical detections removed)")
 
         # Determine overall severity
         print("Determining overall severity...")
@@ -573,8 +573,8 @@ def predict_damage_cost():
         else:
             print(f"Warning: Overall severity index {overall_severity_index} out of bounds for {len(severity_names)} severity names. Using 'Unknown'.")
 
-        # Validate severity consistency
-        overall_severity_name = validate_severity_consistency(damages, overall_severity_name)
+        # # Validate severity consistency
+        # overall_severity_name = validate_severity_consistency(damages, overall_severity_name)
 
         final_result = {
             "overall_severity": overall_severity_name,
