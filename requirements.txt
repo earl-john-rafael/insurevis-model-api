@@ -1,24 +1,20 @@
-# requirements.txt
-
-# Base and ML
+# --- Base & Image Processing ---
 numpy
-opencv-python
+# Use headless OpenCV for server environments (smaller/faster)
+opencv-python-headless
 onnxruntime
 pillow
-pyyaml==5.1
 shapely
 matplotlib
 
-# PyTorch
-torch
-torchvision
-torchaudio
-
-# Detectron2 (from GitHub)
-detectron2 @ git+https://github.com/facebookresearch/detectron2.git
-
-# Web Server
+# --- Web Framework ---
 Flask
 Flask-Cors
 gunicorn
-gevent
+
+# --- Utilities ---
+pyyaml==5.1
+
+# --- Detectron2 ---
+# We install this from source to match our PyTorch version
+detectron2 @ git+https://github.com/facebookresearch/detectron2.git

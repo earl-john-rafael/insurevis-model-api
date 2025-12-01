@@ -2,44 +2,45 @@
 FROM python:3.9-slim
 
 # --- 1. Install system dependencies ---
-# Essential for OpenCV (libgl1) and compiling Detectron2/PyTorch extensions
+# 'build-essential' and 'git' are required to compile Detectron2
+# 'libgl1' and 'libglib2.0-0' are required for OpenCV
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
-    ca-certificates \
     libgl1 \
     libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /insurevis
 
-# --- 2. Install Python Dependencies ---
+# --- 2. Install Dependencies ---
 COPY requirements.txt .
 
-# Install CPU-only PyTorch first to keep image size small (Cloud Run uses CPU by default)
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt
+# STEP A: Install CPU-only PyTorch first.
+# We do this separately to ensure we don't accidentally download the massive GPU version.
+# This keeps your container small and fast.
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# STEP B: Install the rest of the requirements (Detectron2, Flask, etc.)
+RUN pip install --no-cache-dir -r requirements.txt
 
 # --- 3. Copy Application Code ---
-# This copies app.py, config.json, etc.
 COPY . .
 
 # --- 4. Setup Model Directory ---
-# We create an EMPTY folder here. 
-# When you deploy, Google Cloud will "inject" your bucket files into this folder.
+# Create the directory where Google Cloud will mount the bucket (or where you put local models)
 RUN mkdir -p /models
 
 # --- 5. Configure Port & Startup ---
-# Cloud Run sends requests to port 8080 by default.
 ENV PORT=8080
 EXPOSE 8080
 
-# Start the server using Gunicorn
-# --workers 1: Limits memory usage (good for standard Cloud Run instances)
-# --threads 8: Allows handling multiple requests at once
-# --timeout 0: Disables Gunicorn timeout (lets Cloud Run handle it)
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
+# STARTUP COMMAND (Optimized for 6-7 Users)
+# --preload:    Loads the models ONCE in memory, then shares that memory across workers. 
+#               CRITICAL for running Detectron2 on limited RAM.
+# --workers 3:  Creates 3 parallel processes. This allows 3 users to be processed 
+#               at the EXACT same time.
+# --threads 4:  Allows each worker to handle overlapping requests.
+# --timeout 120: Gives heavy image processing time to finish before crashing.
+CMD exec gunicorn --bind :$PORT --workers 3 --threads 4 --timeout 120 --preload app:app
