@@ -62,7 +62,7 @@ The service performs geometric overlap checks between detected part masks and da
 - **OpenCV / NumPy**
 - **Gunicorn** (production serving)
 
-Dependencies are listed in `/home/runner/work/insurevis-model-api/insurevis-model-api/requirements.txt`.
+Dependencies are listed in `requirements.txt`.
 
 ---
 
