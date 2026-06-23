@@ -138,7 +138,7 @@ Key sections:
 From repository root:
 
 ```bash
-export MODEL_DIR=/absolute/path/to/models
+export MODEL_DIR=/home/user/models
 export PORT=5001
 python app.py
 ```
@@ -160,7 +160,7 @@ Run container:
 ```bash
 docker run --rm -p 8080:8080 \
   -e MODEL_DIR=/models \
-  -v /absolute/path/to/models:/models \
+  -v /home/user/models:/models \
   insurevis-model-api
 ```
 
@@ -211,7 +211,7 @@ Run damage analysis on a single image.
 
 ```bash
 curl -X POST http://localhost:5001/predict \
-  -F "image_file=@/absolute/path/to/car-image.jpg"
+  -F "image_file=@/home/user/images/car-image.jpg"
 ```
 
 **Success response example**
